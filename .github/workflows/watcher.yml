@@ -39,6 +39,7 @@ jobs:
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           WATCHER_STATE_FILE: watcher_state.json
+          PYTHONUNBUFFERED: "1"
         run: python dartmouth_watcher.py --once
 
       - name: Commit updated state (if changed)
