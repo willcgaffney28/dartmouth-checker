@@ -12,6 +12,7 @@ alerts on your phone even when away from your computer.
 
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -45,14 +46,17 @@ KEYWORDS = [
 # Do not go below 30 unless you really need to.
 CHECK_INTERVAL = 90
 
-# Where to remember state between runs (what the page looked like last time)
-STATE_FILE = Path.home() / ".dartmouth_watcher_state.json"
+# Where to remember state between runs (what the page looked like last time).
+# Can be overridden by the WATCHER_STATE_FILE environment variable (used by GitHub Actions).
+_state_env = os.environ.get("WATCHER_STATE_FILE")
+STATE_FILE = Path(_state_env) if _state_env else Path.home() / ".dartmouth_watcher_state.json"
 
 # ntfy.sh topic name. MAKE THIS LONG AND RANDOM, like a password.
 # Anyone who knows the topic can send AND read messages on it.
-# Then: install the "ntfy" app on your phone, tap +, and subscribe to the
+# Install the "ntfy" app on your phone, tap +, and subscribe to the
 # same topic name to get push notifications.
-NTFY_TOPIC = "dartmouth_winter27_kj83nf9wpq"
+# Can be overridden by the NTFY_TOPIC environment variable (used by GitHub Actions).
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or "REPLACE_ME_with_something_random_like_dart_xyz_8472"
 
 # Print activity to the terminal
 VERBOSE = True
@@ -61,8 +65,21 @@ VERBOSE = True
 
 
 def fetch_page(url: str) -> str:
-    headers = {"User-Agent": "Mozilla/5.0 (personal page watcher)"}
-    r = requests.get(url, headers=headers, timeout=30)
+    # Mimic a real browser. Some university WAFs block or stall requests
+    # from non-browser user agents.
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    # Tuple = (connect_timeout, read_timeout). Fail fast instead of hanging.
+    log(f"Fetching {url} ...")
+    r = requests.get(url, headers=headers, timeout=(10, 20))
+    log(f"Got HTTP {r.status_code} ({len(r.content)} bytes)")
     r.raise_for_status()
     return r.text
 
@@ -209,16 +226,26 @@ def check_once(state: dict) -> dict:
 
 
 def main():
+    run_once = "--once" in sys.argv
+
     if "REPLACE_ME" in URL or "REPLACE_ME" in NTFY_TOPIC:
-        print("Edit the CONFIG section at the top of this file first.")
-        print("You need to set URL and NTFY_TOPIC.")
+        print("Config missing. Either edit the top of this file, or set the")
+        print("NTFY_TOPIC environment variable (for GitHub Actions / CI).")
         sys.exit(1)
 
     log(f"Watching {URL}")
-    log(f"Interval: {CHECK_INTERVAL}s  |  State: {STATE_FILE}")
-    log(f"ntfy topic: {NTFY_TOPIC}  (subscribe in the ntfy app on your phone)")
+    log(f"State: {STATE_FILE}")
+    log(f"ntfy topic: {NTFY_TOPIC}")
 
     state = load_state()
+
+    if run_once:
+        state = check_once(state)
+        save_state(state)
+        log("Single check complete.")
+        return
+
+    log(f"Interval: {CHECK_INTERVAL}s  (Ctrl+C to stop)")
     try:
         while True:
             state = check_once(state)
