@@ -1,0 +1,54 @@
+name: Dartmouth Page Watcher
+
+on:
+  # Run every 5 minutes (GitHub's minimum cron interval).
+  # In practice, runs often have 5 to 15 minutes of delay during busy periods.
+  schedule:
+    - cron: '*/5 * * * *'
+
+  # Also allow manual runs from the Actions tab (great for testing).
+  workflow_dispatch:
+
+# Needed so the job can commit the updated state file back to the repo.
+permissions:
+  contents: write
+
+# Prevent overlapping runs if one ever runs long.
+concurrency:
+  group: watcher
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run watcher (single check)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          WATCHER_STATE_FILE: watcher_state.json
+        run: python dartmouth_watcher.py --once
+
+      - name: Commit updated state (if changed)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add watcher_state.json
+          if git diff --cached --quiet; then
+            echo "No state change to commit."
+          else
+            git commit -m "update watcher state [skip ci]"
+            git push
+          fi
