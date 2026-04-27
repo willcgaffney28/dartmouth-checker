@@ -56,10 +56,14 @@ STATE_FILE = Path(_state_env) if _state_env else Path.home() / ".dartmouth_watch
 # Install the "ntfy" app on your phone, tap +, and subscribe to the
 # same topic name to get push notifications.
 # Can be overridden by the NTFY_TOPIC environment variable (used by GitHub Actions).
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or "REPLACE_ME_with_something_random_like_dart_xyz_8472"
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or "dartmouth_winter27_kj83nf9wpq"
 
 # Print activity to the terminal
 VERBOSE = True
+
+# Send a low-priority "still alive" ping every N days so you know the watcher
+# is still running. Set to 0 to disable.
+HEARTBEAT_DAYS = 7
 
 # ==============================================
 
@@ -222,6 +226,36 @@ def check_once(state: dict) -> dict:
         log("No hash change.")
 
     state["hash"] = current_hash
+
+    # HEARTBEAT: send a low-priority "still alive" ping every HEARTBEAT_DAYS
+    # so you know the watcher hasn't silently died.
+    if HEARTBEAT_DAYS > 0:
+        last_hb_str = state.get("last_heartbeat")
+        now = datetime.now()
+        send_hb = False
+        if last_hb_str is None:
+            send_hb = True  # first run, send one so you know it's alive
+        else:
+            try:
+                last_hb = datetime.fromisoformat(last_hb_str)
+                if (now - last_hb).total_seconds() >= HEARTBEAT_DAYS * 86400:
+                    send_hb = True
+            except Exception:
+                send_hb = True
+
+        if send_hb:
+            notify(
+                title="Dartmouth watcher: still alive",
+                message=(
+                    f"Heartbeat ping. Watcher is running normally.\n"
+                    f"{WATCHED_TERM}: {description}\n\n"
+                    f"You'll get this every {HEARTBEAT_DAYS} days. "
+                    f"If it stops, the watcher has died."
+                ),
+                priority="low",
+            )
+            state["last_heartbeat"] = now.isoformat()
+
     return state
 
 
