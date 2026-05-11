@@ -1,0 +1,49 @@
+name: Econ Waitlist Watcher
+ 
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+ 
+permissions:
+  contents: write
+ 
+concurrency:
+  group: econ-watcher
+  cancel-in-progress: false
+ 
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+ 
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+ 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+ 
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+ 
+      - name: Run watcher (single check)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          WATCHER_STATE_FILE: econ_watcher_state.json
+          PYTHONUNBUFFERED: "1"
+        run: python econ_watcher.py --once
+ 
+      - name: Commit updated state (if changed)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add econ_watcher_state.json
+          if git diff --cached --quiet; then
+            echo "No state change to commit."
+          else
+            git commit -m "update econ watcher state [skip ci]"
+            git push
+          fi
